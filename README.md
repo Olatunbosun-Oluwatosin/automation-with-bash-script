@@ -27,5 +27,10 @@ The command <git push> was used to push our scripts from the local repository to
 ![](./6.%20users-text-content.png)
 
 The image above shows the content of the <users.txt> which comprises the usernames and the groups associated to the users. 
+<users.txt> contain the following;
+
+tosyeno;developers,hngintern,admin
+olanifemi;developers,admin
+olusam;admin,hngintern
 
 Thank you
