@@ -75,7 +75,22 @@ while IFS=';' read -r username groups; do
         continue
     fi
 
-    # Create groups if they don't exist
+    # Create the user without any groups
+    useradd -m "$username" -s /bin/bash
+    if [ $? -eq 0 ]; then
+        log_message "Created user $username."
+    else
+        log_message "Failed to create user $username."
+        continue
+    fi
+
+    # Create personal group for the user if it doesn't exist
+    if ! getent group "$username" >/dev/null 2>&1; then
+        groupadd "$username"
+        log_message "Created personal group $username."
+    fi
+
+    # Create additional groups if they don't exist
     IFS=',' read -ra group_array <<< "$groups"
     for group in "${group_array[@]}"; do
         if ! getent group "$group" >/dev/null 2>&1; then
@@ -84,12 +99,12 @@ while IFS=';' read -r username groups; do
         fi
     done
 
-    # Create the user with their personal group and add to specified groups
-    useradd -m -g "$username" -G "$groups" "$username" -s /bin/bash
+    # Add the user to the personal group and additional groups
+    usermod -aG "$username,$groups" "$username"
     if [ $? -eq 0 ]; then
-        log_message "Created user $username with primary group $username and additional groups $groups."
+        log_message "Added user $username to personal group $username and additional groups $groups."
     else
-        log_message "Failed to create user $username."
+        log_message "Failed to add user $username to groups."
         continue
     fi
 
@@ -111,5 +126,7 @@ done < "$USER_FILE"
 log_message "User creation script completed."
 
 echo "Script execution completed. Check $LOG_FILE for details."
+
+
 
 
