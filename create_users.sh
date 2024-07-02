@@ -6,6 +6,7 @@
 # Log file path
 LOG_FILE="/var/log/user_management.log"
 PASSWORD_FILE="/var/secure/user_passwords.txt"
+ENCRYPTION_KEY="/var/secure/encryption_key.txt"
 
 # Function to log messages
 log_message() {
@@ -26,10 +27,17 @@ if [ ! -d /var/secure ]; then
     log_message "Created /var/secure directory with 700 permissions."
 fi
 
-# Ensure the log file exists
+# Ensure the log file and encryption key exist
 touch $LOG_FILE
 touch $PASSWORD_FILE
 chmod 600 $PASSWORD_FILE
+
+# Generate encryption key if it doesn't exist
+if [ ! -f "$ENCRYPTION_KEY" ]; then
+    openssl rand -base64 32 > $ENCRYPTION_KEY
+    chmod 600 $ENCRYPTION_KEY
+    log_message "Generated encryption key."
+fi
 
 # Check if input file is provided
 if [ -z "$1" ]; then
@@ -44,6 +52,14 @@ if [ ! -f "$USER_FILE" ]; then
     echo "User file not found: $USER_FILE"
     exit 1
 fi
+
+# Function to encrypt passwords using PBKDF2
+encrypt_password() {
+    local plaintext_password=$1
+    local encrypted_password
+    encrypted_password=$(echo -n "$plaintext_password" | openssl enc -aes-256-cbc -pbkdf2 -a -salt -pass file:$ENCRYPTION_KEY)
+    echo $encrypted_password
+}
 
 # Read the user file line by line
 while IFS=';' read -r username groups; do
@@ -68,10 +84,10 @@ while IFS=';' read -r username groups; do
         fi
     done
 
-    # Create the user with the specified groups
-    useradd -m -G "$groups" "$username" -s /bin/bash
+    # Create the user with their personal group and add to specified groups
+    useradd -m -g "$username" -G "$groups" "$username" -s /bin/bash
     if [ $? -eq 0 ]; then
-        log_message "Created user $username with groups $groups."
+        log_message "Created user $username with primary group $username and additional groups $groups."
     else
         log_message "Failed to create user $username."
         continue
@@ -87,11 +103,13 @@ while IFS=';' read -r username groups; do
     echo "$username:$password" | chpasswd
     log_message "Set password for user $username."
 
-    # Store the password securely
-    echo "$username:$password" >> $PASSWORD_FILE
+    # Encrypt and store the password securely
+    encrypted_password=$(encrypt_password "$password")
+    echo "$username:$encrypted_password" >> $PASSWORD_FILE
 done < "$USER_FILE"
 
 log_message "User creation script completed."
 
 echo "Script execution completed. Check $LOG_FILE for details."
+
 
