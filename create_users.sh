@@ -39,6 +39,13 @@ if [ ! -f "$ENCRYPTION_KEY" ]; then
     log_message "Generated encryption key."
 fi
 
+# Function to encrypt password
+encrypt_password() {
+    local password=$1
+    local encrypted_password=$(echo -n "$password" | openssl enc -aes-256-cbc -base64 -pass file:$ENCRYPTION_KEY)
+    echo $encrypted_password
+}
+
 # Check if input file is provided
 if [ -z "$1" ]; then
     echo "Usage: $0 <user_file>"
@@ -52,14 +59,6 @@ if [ ! -f "$USER_FILE" ]; then
     echo "User file not found: $USER_FILE"
     exit 1
 fi
-
-# Function to encrypt passwords using PBKDF2
-encrypt_password() {
-    local plaintext_password=$1
-    local encrypted_password
-    encrypted_password=$(echo -n "$plaintext_password" | openssl enc -aes-256-cbc -pbkdf2 -a -salt -pass file:$ENCRYPTION_KEY)
-    echo $encrypted_password
-}
 
 # Read the user file line by line
 while IFS=';' read -r username groups; do
@@ -75,38 +74,31 @@ while IFS=';' read -r username groups; do
         continue
     fi
 
-    # Create the user without any groups
-    useradd -m "$username" -s /bin/bash
+    # Create user-specific group if it doesn't exist
+    if ! getent group "$username" >/dev/null 2>&1; then
+        groupadd "$username"
+        log_message "Created group $username."
+    fi
+
+    # Create the user with the user-specific group
+    useradd -m -g "$username" -s /bin/bash "$username"
     if [ $? -eq 0 ]; then
-        log_message "Created user $username."
+        log_message "Created user $username with personal group $username."
     else
         log_message "Failed to create user $username."
         continue
     fi
 
-    # Create personal group for the user if it doesn't exist
-    if ! getent group "$username" >/dev/null 2>&1; then
-        groupadd "$username"
-        log_message "Created personal group $username."
-    fi
-
-    # Create additional groups if they don't exist
+    # Add user to the specified groups
     IFS=',' read -ra group_array <<< "$groups"
     for group in "${group_array[@]}"; do
         if ! getent group "$group" >/dev/null 2>&1; then
             groupadd "$group"
             log_message "Created group $group."
         fi
+        usermod -aG "$group" "$username"
+        log_message "Added user $username to group $group."
     done
-
-    # Add the user to the personal group and additional groups
-    usermod -aG "$username,$groups" "$username"
-    if [ $? -eq 0 ]; then
-        log_message "Added user $username to personal group $username and additional groups $groups."
-    else
-        log_message "Failed to add user $username to groups."
-        continue
-    fi
 
     # Set up home directory permissions
     chmod 700 /home/"$username"
